@@ -1,51 +1,95 @@
-语法及选项说明
+# 🔐 SSH 公钥安装脚本说明
+
+> 一键安装 SSH 公钥、修改端口、禁用密码登录等功能的实用脚本。
+
+---
+
+## 📘 基本语法
+
+```bash
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) [选项...] <参数>
--o - 覆盖模式，必须写在最前面才会生效
--g - 从 GitHub 获取公钥，参数为 GitHub 用户名
--u - 从 URL 获取公钥，参数为 URL
--f - 从本地文件获取公钥，参数为本地文件路径
--p - 修改 SSH 端口，参数为端口号
--d - 禁用密码登录
-使用方法
-生成 SSH 密钥对
-如果没有密钥需要先生成，执行以下命令后一路回车即可。
+🧩 选项说明
+选项	说明	参数要求
+-o	覆盖模式，必须写在最前面才会生效	无
+-g	从 GitHub 获取公钥	GitHub 用户名
+-u	从 URL 获取公钥	公钥文件的 URL
+-f	从 本地文件 获取公钥	本地文件路径
+-p	修改 SSH 端口	端口号
+-d	禁用密码登录	无
 
+🪄 生成 SSH 密钥对
+如果你还没有密钥，可以执行以下命令后一路回车：
+
+bash
+复制代码
 ssh-keygen -t ecdsa -b 521
-TIPS： 此方法适用于 Win­dows 10 (1803后)的 Pow­er­Shell 或 WSL，Linux 发行版和 ma­cOS 自带的终端，但不仅限于这些环境。
-科普： 521 位的 ECDSA 密钥比起 RSA 密钥更安全且验证速度更快。
+✅ 适用于 Windows 10 (1803+) PowerShell / WSL / Linux / macOS 等环境。
+💡 521 位 ECDSA 密钥比 RSA 更安全，验证速度更快。
 
-操作完后会在 ~/.ssh 目录中生两个密钥文件，id_ecdsa 为私钥，id_ecdsa.pub 为公钥。公钥就是我们需要安装在远程主机上的。
+生成后，会在 ~/.ssh/ 目录下看到两个文件：
 
-科普：~符号代表用户主目录，俗称家目录。其路径与当前登陆的用户有关，在 Linux 中普通用户家目录的路径是/home/用户名，而 root 用户是/root。Win­dows 10 中路径是C:\Users\用户名。在 ma­cOS 中路径是/Users/用户名。
-安装公钥
-从 GitHub 获取公钥
-在 GitHub 密钥管理页面 添加公钥，比如我的用户名是 carsonmoon，那么在主机上输入以下命令即可：
+id_ecdsa —— 私钥
 
+id_ecdsa.pub —— 公钥（就是我们要安装到远程主机的）
+
+🏠 家目录路径说明
+系统	路径示例
+Linux 普通用户	/home/用户名
+Linux root 用户	/root
+macOS	/Users/用户名
+Windows 10	C:\Users\用户名
+
+🚀 安装公钥
+① 从 GitHub 获取公钥
+先在 GitHub 的 SSH Keys 页面添加你的公钥。
+例如用户名为 carsonmoon：
+
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -g carsonmoon
-从 URL 获取公钥
-把公钥上传到网盘，通过网盘链接获取公钥：
+② 从 URL 获取公钥
+将公钥文件上传到网盘或服务器，然后使用下载链接：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -u https://carsonmoon.com/key.pub
-从本地文件获取公钥
-通过 FTP 的方式把公钥传到 VPS 上，然后指定公钥路径：
+③ 从本地文件获取公钥
+将公钥传到 VPS（例如 /root/key.pub），然后执行：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -f ~/key.pub
-覆盖模式
-使用覆盖模式（-o）将覆盖 /.ssh/authorized_keys 文件，之前的密钥会被完全替换掉，选项必须写在最前面才会生效，比如：
+⚙️ 进阶选项
+覆盖模式（-o）
+覆盖原有的 ~/.ssh/authorized_keys 文件：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -o -g carsonmoon
-或者
+或简写：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -og carsonmoon
-禁用密码登录
-在确定使用密钥能正常登录后禁用密码登录：
+禁用密码登录（-d）
+确认密钥登录正常后，可禁用密码登录：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -d
-修改 SSH 端口
-把 SSH 端口修改为 2222：
+修改 SSH 端口（-p）
+例如修改为 2222 端口：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -p 2222
-一键操作
-安装密钥、修改端口、禁用密码登录一键操作：
+🧠 一键综合操作示例
+安装密钥、修改端口、禁用密码登录，一条命令搞定：
 
+bash
+复制代码
 bash <(curl -fsSL https://raw.githubusercontent.com/carsonmoon/ssh-installer/main/key.sh) -og carsonmoon -p 2222 -d
+💬 提示
+该脚本仅修改当前服务器的 SSH 登录方式，不影响系统其他配置。
+
+如使用覆盖模式（-o），请务必确保你保留了私钥备份，否则可能无法再次登录。
