@@ -254,6 +254,21 @@ echo "10 重载 Caddy"
 echo "0 退出"
 echo ""
 
+}
+
+# 判断是否 curl | bash 运行
+if [ ! -t 0 ]; then
+echo "检测到一键安装模式"
+install_caddy
+exit
+fi
+
+# 菜单模式
+while true
+do
+
+menu
+
 read -p "选择: " NUM
 
 case $NUM in
@@ -273,9 +288,4 @@ case $NUM in
 
 esac
 
-}
-
-while true
-do
-menu
 done
