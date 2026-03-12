@@ -1,12 +1,5 @@
 #!/bin/bash
 
-# 检测是否 pipe 运行
-if [ ! -t 0 ]; then
-    echo "检测到一键安装模式"
-    install_caddy
-    exit
-fi
-
 CADDYFILE="/etc/caddy/Caddyfile"
 
 get_server_ip(){
