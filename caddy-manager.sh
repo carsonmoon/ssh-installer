@@ -1,10 +1,5 @@
 #!/usr/bin/env bash
 
-# 解决 curl | bash 没有交互输入的问题
-if [ ! -t 0 ]; then
-exec < /dev/tty
-fi
-
 CADDYFILE="/etc/caddy/Caddyfile"
 
 check_root(){
