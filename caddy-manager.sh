@@ -30,23 +30,14 @@ echo ""
 
 check_ipv6_connect(){
 
-echo "检测 IPv6 外网连通性..."
+echo "检测 IPv6 网络..."
 
-IPV6=$(curl -6 -s https://api64.ipify.org)
-
-if [ -z "$IPV6" ]; then
-echo "未检测到 IPv6"
-return
-fi
-
-echo "IPv6地址: $IPV6"
-
-PING_RESULT=$(ping6 -c 2 ipv6.google.com 2>/dev/null)
+ping6 -c 2 ipv6.google.com >/dev/null 2>&1
 
 if [ $? -eq 0 ]; then
 echo "IPv6 网络正常"
 else
-echo "IPv6 可能被屏蔽"
+echo "IPv6 可能不可用"
 fi
 
 }
@@ -118,9 +109,8 @@ EOF
 
 systemctl reload caddy
 
-echo ""
 echo "反代创建成功"
-echo "访问: https://$DOMAIN"
+echo "访问 https://$DOMAIN"
 
 }
 
@@ -146,8 +136,71 @@ EOF
 
 systemctl reload caddy
 
-echo "网站目录:"
-echo $SITE_DIR
+echo "静态网站部署完成"
+
+}
+
+create_reality_site(){
+
+read -p "输入伪装域名: " DOMAIN
+
+SITE_DIR="/var/www/$DOMAIN"
+
+mkdir -p $SITE_DIR
+
+cat > $SITE_DIR/index.html <<EOF
+<!DOCTYPE html>
+<html>
+<head>
+<title>$DOMAIN</title>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+body{
+font-family:Arial;
+margin:40px;
+background:#f5f5f5;
+}
+.container{
+background:white;
+padding:40px;
+border-radius:10px;
+box-shadow:0 0 10px rgba(0,0,0,0.1);
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+<h1>$DOMAIN</h1>
+
+<p>This service is running normally.</p>
+
+<p>Server time: $(date)</p>
+
+</div>
+
+</body>
+</html>
+EOF
+
+cat >> $CADDYFILE <<EOF
+
+$DOMAIN {
+
+    root * $SITE_DIR
+    encode gzip
+    file_server
+
+}
+EOF
+
+systemctl reload caddy
+
+echo "Reality伪装站创建成功"
+echo "访问 https://$DOMAIN"
 
 }
 
@@ -165,11 +218,8 @@ echo "站点删除完成"
 
 show_sites(){
 
-echo ""
-echo "当前 Caddy 配置:"
-echo "----------------"
+echo "当前Caddy配置:"
 cat $CADDYFILE
-echo "----------------"
 
 }
 
@@ -183,16 +233,17 @@ echo "Caddy 已重载"
 menu(){
 
 echo ""
-echo "====== Caddy IPv6 管理工具 ======"
+echo "====== Caddy 管理工具 ======"
 echo "1 查看服务器IP"
 echo "2 检测域名解析"
 echo "3 检测IPv6网络"
 echo "4 安装 Caddy"
 echo "5 添加反向代理"
 echo "6 部署静态网站"
-echo "7 删除站点"
-echo "8 查看配置"
-echo "9 重载 Caddy"
+echo "7 创建 Reality 伪装站"
+echo "8 删除站点"
+echo "9 查看配置"
+echo "10 重载 Caddy"
 echo "0 退出"
 echo ""
 
@@ -206,9 +257,10 @@ case $NUM in
 4) install_caddy ;;
 5) add_reverse_proxy ;;
 6) add_static_site ;;
-7) delete_site ;;
-8) show_sites ;;
-9) reload_caddy ;;
+7) create_reality_site ;;
+8) delete_site ;;
+9) show_sites ;;
+10) reload_caddy ;;
 0) exit ;;
 *) echo "输入错误" ;;
 
