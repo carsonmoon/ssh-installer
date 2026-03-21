@@ -3,10 +3,10 @@
 # Updated SSH Key Installer for Debian 11–13 / Ubuntu 20.04–24.04
 # Original Author: P3TERX
 # Updated By: GPT-5 (ChatGPT)
-# Version: 3.1
+# Version: 3.2 (minimal fix)
 #=============================================================
 
-VERSION=3.1
+VERSION=3.2
 RED="\033[31m"
 GREEN="\033[1;32m"
 RESET="\033[0m"
@@ -21,6 +21,44 @@ detect_sshd_config() {
     done
     echo -e "${ERROR} sshd_config file not found!"
     exit 1
+}
+
+# ✅ 新增：确保开启密钥登录
+enable_pubkey_auth() {
+    detect_sshd_config
+    echo -e "${INFO} Ensuring PubkeyAuthentication is enabled ..."
+    if grep -q "^#*PubkeyAuthentication" "${SSHD_CONFIG}"; then
+        $SUDO sed -i "s@^#*PubkeyAuthentication .*@PubkeyAuthentication yes@" "${SSHD_CONFIG}"
+    else
+        echo "PubkeyAuthentication yes" | $SUDO tee -a "${SSHD_CONFIG}" >/dev/null
+    fi
+    echo -e "${INFO} PubkeyAuthentication enabled."
+    RESTART_SSHD=1
+}
+
+# ✅ 新增：验证配置
+verify_ssh_config() {
+    echo -e "${INFO} Verifying SSH configuration..."
+
+    if command -v sshd &>/dev/null; then
+        PUBKEY_STATUS=$(sshd -T | grep pubkeyauthentication | awk '{print $2}')
+        PASS_STATUS=$(sshd -T | grep passwordauthentication | awk '{print $2}')
+    else
+        detect_sshd_config
+        PUBKEY_STATUS=$(grep -E "^PubkeyAuthentication" "${SSHD_CONFIG}" | awk '{print $2}')
+        PASS_STATUS=$(grep -E "^PasswordAuthentication" "${SSHD_CONFIG}" | awk '{print $2}')
+    fi
+
+    echo -e "${INFO} PubkeyAuthentication = ${PUBKEY_STATUS:-unknown}"
+    echo -e "${INFO} PasswordAuthentication = ${PASS_STATUS:-unknown}"
+
+    if [ "${PUBKEY_STATUS}" != "yes" ]; then
+        echo -e "${ERROR} PubkeyAuthentication is NOT enabled!"
+    fi
+
+    if [ "${PASS_STATUS}" != "no" ]; then
+        echo -e "${ERROR} PasswordAuthentication is NOT disabled!"
+    fi
 }
 
 USAGE() {
@@ -79,26 +117,26 @@ install_key() {
         echo -e "${INFO} Overwriting authorized_keys ..."
         echo "${PUB_KEY}" >"${AUTH_KEYS}"
         echo -e "${INFO} SSH key installed successfully (overwrite mode)."
+        enable_pubkey_auth   # ✅ 关键补丁
         return
     fi
 
-    # --- 防重复检测 ---
     echo -e "${INFO} Checking for duplicate keys..."
-    key_hash=$(echo "${PUB_KEY}" | md5sum | cut -d' ' -f1)
-    existing_hash=$(md5sum "${AUTH_KEYS}" 2>/dev/null | cut -d' ' -f1)
-
     if grep -q "$(echo "${PUB_KEY}" | head -n1 | awk '{print $2}')" "${AUTH_KEYS}" 2>/dev/null; then
         echo -e "${INFO} Key already exists in authorized_keys, skipping."
+        enable_pubkey_auth   # ✅ 防止已有key但没开pubkey登录
         return
     fi
 
-    # --- 添加公钥 ---
     echo -e "${INFO} Appending SSH key ..."
     echo -e "\n${PUB_KEY}" >>"${AUTH_KEYS}"
     chmod 600 "${AUTH_KEYS}"
 
     grep -q "$(echo "${PUB_KEY}" | head -n1 | awk '{print $2}')" "${AUTH_KEYS}" &&
-        echo -e "${INFO} SSH key installed successfully!" ||
+        {
+            echo -e "${INFO} SSH key installed successfully!"
+            enable_pubkey_auth   # ✅ 核心修复点
+        } ||
         { echo -e "${ERROR} Failed to add SSH key."; exit 1; }
 }
 
@@ -148,4 +186,7 @@ if [ "$RESTART_SSHD" = 1 ]; then
         echo -e "${ERROR} Cannot restart ssh service automatically. Please restart manually."
     fi
     echo -e "${INFO} Done."
+
+    # ✅ 新增验证
+    verify_ssh_config
 fi
