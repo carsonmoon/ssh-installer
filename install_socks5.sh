@@ -1,130 +1,57 @@
 #!/bin/bash
 set -e
 
-echo "==== SOCKS5 站群一键部署（稳定版）===="
+echo "==== 3proxy 最小稳定安装（Debian12 / Ubuntu22）===="
 
-# ===== 基础依赖 =====
+# 1. 依赖（关键）
 apt update
-apt install -y curl wget unzip make gcc g++ build-essential libssl-dev iproute2
+apt install -y \
+    build-essential \
+    gcc \
+    g++ \
+    make \
+    wget \
+    unzip \
+    libssl-dev \
+    zlib1g-dev \
+    iproute2
 
-# ===== 获取IP =====
-IPS=($(ip -4 addr show | awk '/inet / {print $2}' | cut -d/ -f1 | grep -v '^127.0.0.1'))
+# 2. 清理旧文件（防止 unzip 卡死 / 冲突）
+rm -rf /tmp/3proxy*
+cd /tmp
 
-echo "检测到IP："
-for i in "${!IPS[@]}"; do
-    echo "[$i] ${IPS[$i]}"
-done
+# 3. 下载源码（用官方codeload，比git zip稳定）
+echo "下载 3proxy..."
+wget -q https://codeload.github.com/3proxy/3proxy/zip/refs/heads/master -O 3proxy.zip
 
-read -p "是否全部IP部署？(y/n): " all
-if [[ "$all" == "y" ]]; then
-    SELECTED_IPS=("${IPS[@]}")
-else
-    read -p "输入选择IP序号(空格分隔): " -a idxs
-    SELECTED_IPS=()
-    for i in "${idxs[@]}"; do
-        SELECTED_IPS+=("${IPS[$i]}")
-    done
-fi
+# 4. 解压（强制无交互）
+unzip -o 3proxy.zip > /dev/null
 
-# ===== 端口 =====
-read -p "端口模式 1统一 / 2递增: " pmode
-read -p "起始端口: " base_port
+cd 3proxy-master/src
 
-# ===== 用户密码 =====
-read -p "账号模式 1统一 / 2随机: " umode
+# 5. 编译（关键步骤）
+echo "编译 3proxy..."
+make -f Makefile.Linux
 
-if [[ "$umode" == "1" ]]; then
-    read -p "用户名: " USERNAME
-    read -p "密码: " PASSWORD
-fi
+# 6. 安装
+cp 3proxy /usr/local/bin/
+chmod +x /usr/local/bin/3proxy
 
-# ===== 安装3proxy（避免重复）=====
-if ! command -v 3proxy >/dev/null 2>&1; then
-    echo "安装3proxy..."
+echo "编译完成 ✔"
 
-    rm -rf /tmp/3proxy*
-    cd /tmp
-
-    wget -q https://codeload.github.com/3proxy/3proxy/zip/refs/heads/master -O 3proxy.zip
-    unzip -o 3proxy.zip >/dev/null
-
-    cd 3proxy-master/src
-    make -f Makefile.Linux
-
-    cp 3proxy /usr/local/bin/
-else
-    echo "3proxy已存在，跳过编译"
-fi
-
+# 7. 创建配置
 mkdir -p /etc/3proxy
 
-# ===== 写配置 =====
-CFG=/etc/3proxy/3proxy.cfg
-echo "" > $CFG
-
-NODE_LIST=()
-
-i=0
-for ip in "${SELECTED_IPS[@]}"; do
-
-    port=$base_port
-    if [[ "$pmode" == "2" ]]; then
-        port=$((base_port + i))
-    fi
-
-    if [[ "$umode" == "2" ]]; then
-        USERNAME="u$(tr -dc a-z0-9 </dev/urandom | head -c5)"
-        PASSWORD="p$(tr -dc a-z0-9 </dev/urandom | head -c8)"
-    fi
-
-    cat >> $CFG <<EOF
-auth strong
-users $USERNAME:CL:$PASSWORD
-allow $USERNAME
-socks -p$port -i$ip
+cat > /etc/3proxy/3proxy.cfg <<EOF
+auth none
+socks -p1080
 EOF
 
-    NODE_LIST+=("$ip:$port:$USERNAME:$PASSWORD")
-
-    ((i++))
-done
-
-# ===== systemd =====
-cat > /etc/systemd/system/3proxy.service <<EOF
-[Unit]
-Description=3proxy
-After=network.target
-
-[Service]
-ExecStart=/usr/local/bin/3proxy /etc/3proxy/3proxy.cfg
-Restart=always
-
-[Install]
-WantedBy=multi-user.target
-EOF
-
-systemctl daemon-reload
-systemctl enable 3proxy
-systemctl restart 3proxy
-
-# ===== 输出 =====
-echo ""
-echo "==== SOCKS5 节点 ===="
-
-for n in "${NODE_LIST[@]}"; do
-    echo "$n"
-done
-
-echo "${NODE_LIST[@]}" > /etc/3proxy/nodes.txt
-
-# CSV
-echo "ip,port,user,pass" > /etc/3proxy/nodes.csv
-for n in "${NODE_LIST[@]}"; do
-    IFS=":" read ip port user pass <<< "$n"
-    echo "$ip,$port,$user,$pass" >> /etc/3proxy/nodes.csv
-done
+# 8. 启动测试
+echo "启动测试 SOCKS5 (1080)..."
+/usr/local/bin/3proxy /etc/3proxy/3proxy.cfg &
+sleep 2
 
 echo ""
-echo "完成："
-echo "/etc/3proxy/nodes.txt"
-echo "/etc/3proxy/nodes.csv"
+echo "==== 完成 ===="
+echo "SOCKS5: 127.0.0.1:1080"
