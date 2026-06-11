@@ -1,9 +1,7 @@
 #!/usr/bin/env bash
 #=============================================================
-# SSH Key Installer for Debian 10-13 / Ubuntu 22.04+
-# Original Author: P3TERX
-# Maintained compatibility update
-# Version: 4.0
+# SSH 密钥安装器（Debian 10-13 / Ubuntu 22.04+）
+# 中文增强版
 #=============================================================
 
 set -o pipefail
@@ -14,15 +12,18 @@ RED="\033[31m"
 GREEN="\033[1;32m"
 YELLOW="\033[33m"
 RESET="\033[0m"
-INFO="[${GREEN}INFO${RESET}]"
-WARN="[${YELLOW}WARN${RESET}]"
-ERROR="[${RED}ERROR${RESET}]"
+
+INFO="[信息]"
+WARN="[警告]"
+ERROR="[错误]"
 
 SSHD_CONFIG=${SSHD_CONFIG:-/etc/ssh/sshd_config}
 SSHD_DROPIN_DIR=${SSHD_DROPIN_DIR:-/etc/ssh/sshd_config.d}
 SSHD_DROPIN=${SSHD_DROPIN:-${SSHD_DROPIN_DIR}/00-key-installer.conf}
-PORT_BLOCK_BEGIN="# BEGIN key-installer managed port"
-PORT_BLOCK_END="# END key-installer managed port"
+
+PORT_BLOCK_BEGIN="# BEGIN key-installer 管理端口"
+PORT_BLOCK_END="# END key-installer 管理端口"
+
 OVERWRITE=0
 DISABLE_PASSWORD=0
 RESTART_SSHD=0
@@ -31,6 +32,7 @@ KEY_SOURCE=""
 KEY_ARG=""
 SSH_PORT=""
 
+# sudo 自动检测
 if [ "${EUID}" -ne 0 ] && [ -z "${SUDO+x}" ]; then
     SUDO=sudo
 else
@@ -41,32 +43,35 @@ log_info() { echo -e "${INFO} $*"; }
 log_warn() { echo -e "${WARN} $*"; }
 log_error() { echo -e "${ERROR} $*" >&2; }
 
+#=============================================================
+# 使用说明
+#=============================================================
 USAGE() {
-    cat <<EOF
-SSH Key Installer ${VERSION}
+cat <<EOF
+SSH 密钥安装器 ${VERSION}
 
-Usage:
-  bash key.sh [options...] <arg>
+用法:
+  bash key.sh [选项]
 
-Options:
-  -o    Overwrite mode (replace all keys)
-  -g    Get public keys from GitHub (argument: GitHub username)
-  -u    Get public keys from a URL (argument: URL)
-  -f    Get public keys from a local file (argument: file path)
-  -p    Change SSH port (argument: port number)
-  -d    Disable SSH password login
-  -h    Show help
+功能选项:
+  -o   覆盖模式（清空原有 authorized_keys）
+  -g   从 GitHub 获取公钥（参数：用户名）
+  -u   从 URL 获取公钥（参数：链接）
+  -f   从本地文件读取公钥（参数：文件路径）
+  -p   修改 SSH 端口（参数：端口号）
+  -d   禁用 SSH 密码登录
+  -h   显示帮助
 
-Examples:
+示例:
   bash key.sh -g username
-  bash key.sh -o -f /path/to/id_ed25519.pub
+  bash key.sh -o -f ~/.ssh/id_ed25519.pub
   bash key.sh -d -p 2222 -g username
 EOF
 }
 
 need_cmd() {
     if ! command -v "$1" >/dev/null 2>&1; then
-        log_error "Required command not found: $1"
+        log_error "缺少依赖命令：$1"
         exit 1
     fi
 }
@@ -79,51 +84,41 @@ run_as_root() {
     fi
 }
 
+#=============================================================
+# 系统检测
+#=============================================================
 detect_os() {
     if [ ! -r /etc/os-release ]; then
-        log_warn "Cannot read /etc/os-release; continuing without OS version checks."
-        return 0
+        log_warn "无法读取系统信息文件 /etc/os-release"
+        return
     fi
 
-    # shellcheck disable=SC1091
     . /etc/os-release
+
     case "${ID:-}" in
         debian)
-            case "${VERSION_ID:-}" in
-                10|11|12|13) log_info "Detected Debian ${VERSION_ID}." ;;
-                *) log_warn "Detected Debian ${VERSION_ID:-unknown}; this script is tested for Debian 10-13." ;;
-            esac
+            log_info "当前系统：Debian ${VERSION_ID:-未知}"
             ;;
         ubuntu)
-            major=${VERSION_ID%%.*}
-            if [ -n "${major}" ] && [ "${major}" -ge 22 ] 2>/dev/null; then
-                log_info "Detected Ubuntu ${VERSION_ID}."
-            else
-                log_warn "Detected Ubuntu ${VERSION_ID:-unknown}; this script is tested for Ubuntu 22.04 and newer."
-            fi
+            log_info "当前系统：Ubuntu ${VERSION_ID:-未知}"
             ;;
         *)
-            log_warn "Detected ${PRETTY_NAME:-an unsupported Linux distribution}; this script targets Debian and Ubuntu."
+            log_warn "未知系统：${PRETTY_NAME:-未知}"
             ;;
     esac
 }
 
+#=============================================================
+# SSHD 路径
+#=============================================================
 find_sshd() {
-    if [ -n "${SSHD_BIN:-}" ] && [ -x "${SSHD_BIN}" ]; then
-        echo "${SSHD_BIN}"
-        return 0
-    fi
-
     if command -v sshd >/dev/null 2>&1; then
         command -v sshd
-        return 0
+        return
     fi
 
     for bin in /usr/sbin/sshd /usr/local/sbin/sshd; do
-        if [ -x "${bin}" ]; then
-            echo "${bin}"
-            return 0
-        fi
+        [ -x "$bin" ] && echo "$bin" && return
     done
 
     return 1
@@ -131,196 +126,171 @@ find_sshd() {
 
 check_sshd_config() {
     if [ ! -f "${SSHD_CONFIG}" ]; then
-        log_error "sshd_config file not found: ${SSHD_CONFIG}"
+        log_error "未找到 SSH 配置文件：${SSHD_CONFIG}"
         exit 1
     fi
 }
 
+#=============================================================
+# 确保 Include 机制
+#=============================================================
 ensure_managed_include() {
     check_sshd_config
+
     run_as_root mkdir -p "${SSHD_DROPIN_DIR}"
     run_as_root touch "${SSHD_DROPIN}"
     run_as_root chmod 0644 "${SSHD_DROPIN}"
 
     include_line="Include ${SSHD_DROPIN}"
     tmp_file=$(mktemp)
+
     awk -v include_line="${include_line}" '
         BEGIN { print include_line }
         $0 == include_line { next }
         { print }
     ' "${SSHD_CONFIG}" >"${tmp_file}"
 
-    if cmp -s "${tmp_file}" "${SSHD_CONFIG}"; then
-        rm -f "${tmp_file}"
-    else
-        log_info "Adding managed SSH include at the top of ${SSHD_CONFIG}."
+    if ! cmp -s "${tmp_file}" "${SSHD_CONFIG}"; then
+        log_info "已写入 SSH drop-in 管理配置"
         run_as_root install -m 0644 "${tmp_file}" "${SSHD_CONFIG}"
-        rm -f "${tmp_file}"
         RESTART_SSHD=1
     fi
+
+    rm -f "${tmp_file}"
 }
 
 set_dropin_option() {
     key=$1
     value=$2
+
     ensure_managed_include
 
     if run_as_root grep -Eq "^[[:space:]]*#?[[:space:]]*${key}[[:space:]]+" "${SSHD_DROPIN}"; then
-        run_as_root sed -i.bak -E "s@^[[:space:]]*#?[[:space:]]*${key}[[:space:]].*@${key} ${value}@" "${SSHD_DROPIN}"
+        run_as_root sed -i -E "s@^[[:space:]]*#?[[:space:]]*${key}[[:space:]].*@${key} ${value}@" "${SSHD_DROPIN}"
     else
-        printf '%s %s\n' "${key}" "${value}" | run_as_root tee -a "${SSHD_DROPIN}" >/dev/null
+        echo "${key} ${value}" | run_as_root tee -a "${SSHD_DROPIN}" >/dev/null
     fi
+
     RESTART_SSHD=1
 }
 
 enable_pubkey_auth() {
-    log_info "Ensuring PubkeyAuthentication is enabled."
+    log_info "启用 SSH 公钥认证"
     set_dropin_option "PubkeyAuthentication" "yes"
 }
 
 disable_password_login() {
-    log_info "Disabling password and keyboard-interactive SSH login."
+    log_info "关闭 SSH 密码登录"
     set_dropin_option "PasswordAuthentication" "no"
     set_dropin_option "KbdInteractiveAuthentication" "no"
     set_dropin_option "ChallengeResponseAuthentication" "no"
 }
 
+#=============================================================
+# SSH 端口处理
+#=============================================================
 validate_port() {
     case "${SSH_PORT}" in
-        ''|*[!0-9]*) log_error "Invalid SSH port: ${SSH_PORT}"; exit 1 ;;
+        ''|*[!0-9]*) log_error "端口不合法：${SSH_PORT}"; exit 1 ;;
     esac
 
     if [ "${SSH_PORT}" -lt 1 ] || [ "${SSH_PORT}" -gt 65535 ]; then
-        log_error "SSH port must be between 1 and 65535."
+        log_error "端口范围必须为 1-65535"
         exit 1
     fi
-}
-
-change_port() {
-    validate_port
-    log_info "Changing SSH port to ${SSH_PORT}."
-    set_managed_port
-    log_warn "Make sure your firewall and cloud security group allow TCP port ${SSH_PORT}."
 }
 
 rewrite_ports_in_file() {
     file=$1
     managed=$2
-    [ -f "${file}" ] || return 0
+
+    [ ! -f "$file" ] && return
 
     tmp_file=$(mktemp)
-    awk \
-        -v port="${SSH_PORT}" \
-        -v begin="${PORT_BLOCK_BEGIN}" \
-        -v end="${PORT_BLOCK_END}" \
-        -v include_line="Include ${SSHD_DROPIN}" \
-        -v managed="${managed}" '
-        BEGIN {
-            in_block = 0
-            printed_block = 0
-        }
-        managed == "1" && NR == 1 && $0 == include_line {
-            print
-            print begin
-            print "Port " port
-            print end
-            printed_block = 1
-            next
-        }
-        managed == "1" && NR == 1 && $0 != include_line {
-            print begin
-            print "Port " port
-            print end
-            printed_block = 1
-        }
-        END {
-            if (managed == "1" && printed_block == 0) {
-                print begin
-                print "Port " port
-                print end
-            }
-        }
-        $0 == begin { in_block = 1; next }
-        $0 == end { in_block = 0; next }
-        in_block { next }
-        /^[[:space:]]*Port[[:space:]]+/ {
-            print "# key-installer disabled duplicate Port: " $0
-            next
-        }
-        { print }
-    ' "${file}" >"${tmp_file}"
 
-    if cmp -s "${tmp_file}" "${file}"; then
-        rm -f "${tmp_file}"
-    else
-        run_as_root install -m 0644 "${tmp_file}" "${file}"
-        rm -f "${tmp_file}"
+    awk -v port="${SSH_PORT}" -v begin="${PORT_BLOCK_BEGIN}" -v end="${PORT_BLOCK_END}" -v managed="${managed}" '
+    BEGIN { in_block=0; printed=0 }
+
+    $0 == begin { in_block=1; next }
+    $0 == end { in_block=0; next }
+    in_block { next }
+
+    /^[[:space:]]*Port[[:space:]]+/ {
+        print "# 已被 key-installer 注释: " $0
+        next
+    }
+
+    {
+        print
+    }
+
+    END {
+        if (managed == "1" && printed == 0) {
+            print begin
+            print "Port " port
+            print end
+        }
+    }
+    ' "$file" >"$tmp_file"
+
+    if ! cmp -s "$tmp_file" "$file"; then
+        run_as_root install -m 0644 "$tmp_file" "$file"
         RESTART_SSHD=1
     fi
+
+    rm -f "$tmp_file"
 }
 
 set_managed_port() {
     check_sshd_config
     rewrite_ports_in_file "${SSHD_CONFIG}" 1
 
-    if [ -d "${SSHD_DROPIN_DIR}" ]; then
-        for conf in "${SSHD_DROPIN_DIR}"/*.conf; do
-            [ -e "${conf}" ] || continue
-            rewrite_ports_in_file "${conf}" 0
-        done
-    fi
+    for conf in "${SSHD_DROPIN_DIR}"/*.conf; do
+        [ -e "$conf" ] && rewrite_ports_in_file "$conf" 0
+    done
 }
 
+change_port() {
+    validate_port
+    log_info "修改 SSH 端口为 ${SSH_PORT}"
+    set_managed_port
+    log_warn "请确认防火墙已放行端口 ${SSH_PORT}"
+}
+
+#=============================================================
+# 获取公钥
+#=============================================================
 fetch_keys() {
     case "${KEY_SOURCE}" in
         github)
             need_cmd curl
-            [ -z "${KEY_ARG}" ] && read -rp "GitHub username: " KEY_ARG
-            log_info "Getting public keys from GitHub user: ${KEY_ARG}"
-            PUB_KEY=$(curl -fsSL "https://github.com/${KEY_ARG}.keys") || {
-                log_error "Unable to fetch keys from GitHub."
-                exit 1
-            }
+            [ -z "$KEY_ARG" ] && read -rp "请输入 GitHub 用户名: " KEY_ARG
+            PUB_KEY=$(curl -fsSL "https://github.com/${KEY_ARG}.keys")
             ;;
         url)
             need_cmd curl
-            [ -z "${KEY_ARG}" ] && read -rp "Public key URL: " KEY_ARG
-            log_info "Fetching public keys from URL."
-            PUB_KEY=$(curl -fsSL "${KEY_ARG}") || {
-                log_error "Unable to fetch keys from URL."
-                exit 1
-            }
+            [ -z "$KEY_ARG" ] && read -rp "请输入公钥URL: " KEY_ARG
+            PUB_KEY=$(curl -fsSL "${KEY_ARG}")
             ;;
         file)
-            [ -z "${KEY_ARG}" ] && read -rp "Local key file path: " KEY_ARG
-            [ ! -f "${KEY_ARG}" ] && log_error "File not found: ${KEY_ARG}" && exit 1
-            log_info "Reading public keys from ${KEY_ARG}."
-            PUB_KEY=$(cat "${KEY_ARG}")
+            [ -z "$KEY_ARG" ] && read -rp "请输入本地文件路径: " KEY_ARG
+            PUB_KEY=$(cat "$KEY_ARG")
             ;;
         '')
-            return 0
+            return
             ;;
         *)
-            log_error "Unknown key source: ${KEY_SOURCE}"
+            log_error "未知来源"
             exit 1
             ;;
     esac
 
-    [ -z "${PUB_KEY}" ] && log_error "SSH key content is empty." && exit 1
+    [ -z "$PUB_KEY" ] && log_error "未获取到任何公钥" && exit 1
 }
 
 is_valid_public_key_line() {
-    line=$1
-    case "${line}" in
-        ssh-rsa\ *|ssh-ed25519\ *|ecdsa-sha2-nistp256\ *|ecdsa-sha2-nistp384\ *|ecdsa-sha2-nistp521\ *|sk-ssh-ed25519@openssh.com\ *|sk-ecdsa-sha2-nistp256@openssh.com\ *)
-            if command -v ssh-keygen >/dev/null 2>&1; then
-                tmp_key=$(mktemp)
-                printf '%s\n' "${line}" >"${tmp_key}"
-                ssh-keygen -l -f "${tmp_key}" >/dev/null 2>&1
-                rc=$?
-                rm -f "${tmp_key}"
-                return "${rc}"
-            fi
+    case "$1" in
+        ssh-rsa*|ssh-ed25519*|ecdsa-sha2-*|sk-ssh-*|sk-ecdsa-*)
             return 0
             ;;
         *)
@@ -330,183 +300,117 @@ is_valid_public_key_line() {
 }
 
 key_blob() {
-    printf '%s\n' "$1" | awk '{print $2}'
+    echo "$1" | awk '{print $2}'
 }
 
 install_keys() {
-    [ -z "${KEY_SOURCE}" ] && return 0
+    [ -z "$KEY_SOURCE" ] && return
+
     fetch_keys
 
-    SSH_DIR="${HOME}/.ssh"
-    AUTH_KEYS="${SSH_DIR}/authorized_keys"
+    SSH_DIR="$HOME/.ssh"
+    AUTH_KEYS="$SSH_DIR/authorized_keys"
 
-    mkdir -p "${SSH_DIR}"
-    touch "${AUTH_KEYS}"
-    chmod 700 "${SSH_DIR}"
-    chmod 600 "${AUTH_KEYS}"
+    mkdir -p "$SSH_DIR"
+    chmod 700 "$SSH_DIR"
+    touch "$AUTH_KEYS"
+    chmod 600 "$AUTH_KEYS"
 
-    tmp_keys=$(mktemp)
-    valid_count=0
-    skipped_count=0
+    tmp=$(mktemp)
 
-    while IFS= read -r line || [ -n "${line}" ]; do
-        case "${line}" in
-            ''|'#'*) continue ;;
-        esac
+    while read -r line; do
+        [ -z "$line" ] && continue
 
-        if ! is_valid_public_key_line "${line}"; then
-            skipped_count=$((skipped_count + 1))
-            continue
-        fi
+        is_valid_public_key_line "$line" || continue
 
-        blob=$(key_blob "${line}")
-        if [ -z "${blob}" ] || grep -Fq " ${blob}" "${tmp_keys}" 2>/dev/null; then
-            skipped_count=$((skipped_count + 1))
-            continue
-        fi
+        blob=$(key_blob "$line")
 
-        printf '%s\n' "${line}" >>"${tmp_keys}"
-        valid_count=$((valid_count + 1))
-    done <<EOF
-${PUB_KEY}
-EOF
+        grep -q "$blob" "$tmp" 2>/dev/null && continue
 
-    if [ "${valid_count}" -eq 0 ]; then
-        rm -f "${tmp_keys}"
-        log_error "No valid public keys found."
-        [ "${skipped_count}" -gt 0 ] && log_error "Skipped ${skipped_count} invalid or duplicate input line(s)."
-        exit 1
-    fi
+        echo "$line" >>"$tmp"
+    done <<< "$PUB_KEY"
 
     if [ "${OVERWRITE}" -eq 1 ]; then
-        log_info "Overwriting authorized_keys with ${valid_count} key(s)."
-        cp "${tmp_keys}" "${AUTH_KEYS}"
-        chmod 600 "${AUTH_KEYS}"
-        rm -f "${tmp_keys}"
-        enable_pubkey_auth
-        return 0
+        cp "$tmp" "$AUTH_KEYS"
+    else
+        cat "$tmp" >>"$AUTH_KEYS"
     fi
 
-    added_count=0
-    duplicate_count=0
-    while IFS= read -r line || [ -n "${line}" ]; do
-        blob=$(key_blob "${line}")
-        if grep -Fq " ${blob}" "${AUTH_KEYS}" 2>/dev/null; then
-            duplicate_count=$((duplicate_count + 1))
-            continue
-        fi
-        printf '%s\n' "${line}" >>"${AUTH_KEYS}"
-        added_count=$((added_count + 1))
-    done <"${tmp_keys}"
+    rm -f "$tmp"
 
-    chmod 600 "${AUTH_KEYS}"
-    rm -f "${tmp_keys}"
-
-    log_info "Added ${added_count} key(s); skipped ${duplicate_count} existing key(s)."
-    [ "${skipped_count}" -gt 0 ] && log_warn "Skipped ${skipped_count} invalid or duplicate input line(s)."
+    log_info "SSH 公钥写入完成"
     enable_pubkey_auth
 }
 
 test_sshd_config() {
-    sshd_bin=$(find_sshd || true)
-    if [ -z "${sshd_bin}" ]; then
-        log_warn "Cannot find sshd binary; skipping sshd -t validation."
-        return 0
-    fi
+    sshd_bin=$(find_sshd)
+    [ -z "$sshd_bin" ] && return
 
-    log_info "Testing SSH configuration with ${sshd_bin} -t."
-    if ! run_as_root "${sshd_bin}" -t; then
-        log_error "SSH configuration test failed. Service was not restarted."
+    log_info "检测 SSH 配置"
+    run_as_root "$sshd_bin" -t || {
+        log_error "SSH 配置错误，已阻止重启"
         exit 1
-    fi
+    }
 }
 
 restart_sshd() {
-    [ "${RESTART_SSHD}" -ne 1 ] && return 0
+    [ "$RESTART_SSHD" -ne 1 ] && return
+
     test_sshd_config
 
-    log_info "Reloading SSH service."
-    if command -v systemctl >/dev/null 2>&1 && systemctl list-unit-files >/dev/null 2>&1; then
-        if run_as_root systemctl reload ssh 2>/dev/null || run_as_root systemctl reload sshd 2>/dev/null; then
-            log_info "SSH service reloaded."
-            return 0
-        fi
-        if run_as_root systemctl restart ssh 2>/dev/null || run_as_root systemctl restart sshd 2>/dev/null; then
-            log_info "SSH service restarted."
-            return 0
-        fi
-    fi
+    log_info "重启 SSH 服务"
 
-    if command -v service >/dev/null 2>&1; then
-        if run_as_root service ssh reload 2>/dev/null || run_as_root service sshd reload 2>/dev/null; then
-            log_info "SSH service reloaded."
-            return 0
-        fi
-        if run_as_root service ssh restart 2>/dev/null || run_as_root service sshd restart 2>/dev/null; then
-            log_info "SSH service restarted."
-            return 0
-        fi
-    fi
+    systemctl reload ssh 2>/dev/null || systemctl reload sshd 2>/dev/null || \
+    systemctl restart ssh 2>/dev/null || systemctl restart sshd 2>/dev/null || \
+    service ssh restart 2>/dev/null || service sshd restart 2>/dev/null
 
-    log_warn "Cannot reload SSH service automatically. Please reload or restart sshd manually."
+    log_info "SSH 服务已更新"
 }
 
 verify_effective_config() {
-    sshd_bin=$(find_sshd || true)
-    if [ -z "${sshd_bin}" ]; then
-        return 0
-    fi
+    sshd_bin=$(find_sshd)
+    [ -z "$sshd_bin" ] && return
 
-    effective=$(
-        run_as_root "${sshd_bin}" -T 2>/dev/null | awk '
-            $1 == "port" { ports = ports ? ports "," $2 : $2 }
-            $1 == "pubkeyauthentication" { pubkey=$2 }
-            $1 == "passwordauthentication" { password=$2 }
-            $1 == "kbdinteractiveauthentication" { kbd=$2 }
-            END {
-                if (ports) print "Port = " ports;
-                if (pubkey) print "PubkeyAuthentication = " pubkey;
-                if (password) print "PasswordAuthentication = " password;
-                if (kbd) print "KbdInteractiveAuthentication = " kbd;
-            }'
-    )
-
-    [ -n "${effective}" ] && printf '%s\n' "${effective}" | while IFS= read -r line; do log_info "${line}"; done
+    run_as_root "$sshd_bin" -T 2>/dev/null | awk '
+        $1=="port"{print "当前端口: "$2}
+        $1=="passwordauthentication"{print "密码登录: "$2}
+        $1=="pubkeyauthentication"{print "密钥登录: "$2}
+    '
 }
 
+#=============================================================
+# 参数解析
+#=============================================================
 parse_options() {
-    while getopts ":og:u:f:p:dh" OPT; do
-        case "${OPT}" in
+    while getopts ":og:u:f:p:dh" opt; do
+        case "$opt" in
             o) OVERWRITE=1 ;;
-            g) KEY_SOURCE="github"; KEY_ARG=${OPTARG}; ACTION_COUNT=$((ACTION_COUNT + 1)) ;;
-            u) KEY_SOURCE="url"; KEY_ARG=${OPTARG}; ACTION_COUNT=$((ACTION_COUNT + 1)) ;;
-            f) KEY_SOURCE="file"; KEY_ARG=${OPTARG}; ACTION_COUNT=$((ACTION_COUNT + 1)) ;;
-            p) SSH_PORT=${OPTARG}; ACTION_COUNT=$((ACTION_COUNT + 1)) ;;
-            d) DISABLE_PASSWORD=1; ACTION_COUNT=$((ACTION_COUNT + 1)) ;;
+            g) KEY_SOURCE=github; KEY_ARG="$OPTARG"; ACTION_COUNT=$((ACTION_COUNT+1)) ;;
+            u) KEY_SOURCE=url; KEY_ARG="$OPTARG"; ACTION_COUNT=$((ACTION_COUNT+1)) ;;
+            f) KEY_SOURCE=file; KEY_ARG="$OPTARG"; ACTION_COUNT=$((ACTION_COUNT+1)) ;;
+            p) SSH_PORT="$OPTARG"; ACTION_COUNT=$((ACTION_COUNT+1)) ;;
+            d) DISABLE_PASSWORD=1 ;;
             h) USAGE; exit 0 ;;
-            :) log_error "Option -${OPTARG} requires an argument."; USAGE; exit 1 ;;
-            \?) log_error "Unknown option: -${OPTARG}"; USAGE; exit 1 ;;
         esac
     done
-
-    if [ "${ACTION_COUNT}" -eq 0 ]; then
-        USAGE
-        exit 0
-    fi
 }
 
+#=============================================================
+# 主流程
+#=============================================================
 main() {
     parse_options "$@"
     detect_os
 
     install_keys
 
-    [ -n "${SSH_PORT}" ] && change_port
-    [ "${DISABLE_PASSWORD}" -eq 1 ] && disable_password_login
+    [ -n "$SSH_PORT" ] && change_port
+    [ "$DISABLE_PASSWORD" -eq 1 ] && disable_password_login
 
     restart_sshd
     verify_effective_config
-    log_info "Done."
+
+    log_info "全部操作完成"
 }
 
 main "$@"
