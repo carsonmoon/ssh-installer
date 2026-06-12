@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #=============================================================
 # SSH 密钥安装器（Debian 10-13 / Ubuntu 22.04+）
-# 中文增强版
+# 中文增强版，增加自动放行防火墙端口
 #=============================================================
 
 set -o pipefail
@@ -187,6 +187,38 @@ disable_password_login() {
 }
 
 #=============================================================
+# 自动放行防火墙端口
+#=============================================================
+auto_allow_firewall_port() {
+    log_info "检测并放行防火墙端口 ${SSH_PORT}"
+
+    # UFW
+    if command -v ufw >/dev/null 2>&1; then
+        if ufw status 2>/dev/null | grep -q "Status: active"; then
+            log_info "UFW 已启用，放行 TCP ${SSH_PORT}"
+            run_as_root ufw allow "${SSH_PORT}/tcp"
+        fi
+    fi
+
+    # firewalld
+    if command -v firewall-cmd >/dev/null 2>&1; then
+        if systemctl is-active firewalld >/dev/null 2>&1; then
+            log_info "firewalld 已启用，放行 TCP ${SSH_PORT}"
+            run_as_root firewall-cmd --permanent --add-port="${SSH_PORT}/tcp"
+            run_as_root firewall-cmd --reload
+        fi
+    fi
+
+    # iptables/nftables 提示
+    if command -v nft >/dev/null 2>&1; then
+        log_warn "检测到 nftables，请确认规则已允许 TCP ${SSH_PORT}"
+    fi
+    if command -v iptables >/dev/null 2>&1; then
+        log_warn "检测到 iptables，请确认规则已允许 TCP ${SSH_PORT}"
+    fi
+}
+
+#=============================================================
 # SSH 端口处理
 #=============================================================
 validate_port() {
@@ -253,8 +285,9 @@ set_managed_port() {
 change_port() {
     validate_port
     log_info "修改 SSH 端口为 ${SSH_PORT}"
+    auto_allow_firewall_port
     set_managed_port
-    log_warn "请确认防火墙已放行端口 ${SSH_PORT}"
+    log_warn "请确认云平台安全组已放行端口 ${SSH_PORT}"
 }
 
 #=============================================================
