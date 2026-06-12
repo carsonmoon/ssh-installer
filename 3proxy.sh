@@ -1,57 +1,127 @@
 #!/usr/bin/env bash
-#=============================================================
-# 3proxy Auto Installer for Debian 12/13
-# Version: 1.0
-#=============================================================
 
 set -e
 
-RED="\033[31m"
-GREEN="\033[32m"
-YELLOW="\033[33m"
-RESET="\033[0m"
+INSTALL_DIR="/usr/local/3proxy"
+CONFIG_FILE="${INSTALL_DIR}/3proxy.cfg"
 
-echo -e "${GREEN}==> 更新系统并安装依赖...${RESET}"
-apt update -y
-apt upgrade -y
-apt install -y build-essential git make gcc
+echo "=================================="
+echo "3proxy Installer for Debian 12/13"
+echo "=================================="
 
-echo -e "${GREEN}==> 下载 3proxy 源码...${RESET}"
+if [ "$(id -u)" != "0" ]; then
+    echo "请使用 root 运行"
+    exit 1
+fi
+
+echo "[1/7] 安装依赖..."
+
+apt update
+
+DEBIAN_FRONTEND=noninteractive apt install -y \
+git \
+gcc \
+g++ \
+make \
+build-essential \
+libssl-dev \
+zlib1g-dev \
+curl \
+wget
+
+echo "[2/7] 下载源码..."
+
 cd /tmp
-git clone https://github.com/z3APA3A/3proxy.git
-cd 3proxy
+rm -rf 3proxy 3proxy-master 3proxy.zip
 
-echo -e "${GREEN}==> 编译 3proxy...${RESET}"
+git clone https://github.com/z3APA3A/3proxy.git
+
+echo "[3/7] 编译..."
+
+cd /tmp/3proxy
+
 make -f Makefile.Linux
 
-echo -e "${GREEN}==> 创建安装目录并复制文件...${RESET}"
-mkdir -p /usr/local/3proxy
-cp ./bin/3proxy /usr/local/3proxy/
-cp ./bin/3proxy.cfg /usr/local/3proxy/ 2>/dev/null || true
+echo "[4/7] 安装..."
 
-echo -e "${GREEN}==> 设置权限...${RESET}"
-chmod +x /usr/local/3proxy/3proxy
+mkdir -p "${INSTALL_DIR}"
 
-echo -e "${GREEN}==> 创建 systemd 服务文件...${RESET}"
-cat >/etc/systemd/system/3proxy.service <<EOF
+cp bin/3proxy "${INSTALL_DIR}/"
+
+chmod +x "${INSTALL_DIR}/3proxy"
+
+echo
+read -p "SOCKS5端口 [默认1080]: " PORT
+PORT=${PORT:-1080}
+
+read -p "用户名 [默认admin]: " USERNAME
+USERNAME=${USERNAME:-admin}
+
+read -s -p "密码 [默认123456]: " PASSWORD
+echo
+PASSWORD=${PASSWORD:-123456}
+
+echo "[5/7] 生成配置..."
+
+cat > "${CONFIG_FILE}" <<EOF
+daemon
+
+nserver 8.8.8.8
+nserver 1.1.1.1
+
+timeouts 1 5 30 60 180 1800 15 60
+
+users ${USERNAME}:CL:${PASSWORD}
+
+auth strong
+
+allow ${USERNAME}
+
+socks -p${PORT}
+
+flush
+EOF
+
+echo "[6/7] 创建systemd服务..."
+
+cat > /etc/systemd/system/3proxy.service <<EOF
 [Unit]
 Description=3proxy Proxy Server
 After=network.target
 
 [Service]
 Type=simple
-ExecStart=/usr/local/3proxy/3proxy /usr/local/3proxy/3proxy.cfg
-Restart=on-failure
+ExecStart=${INSTALL_DIR}/3proxy ${CONFIG_FILE}
+Restart=always
+RestartSec=5
 
 [Install]
 WantedBy=multi-user.target
 EOF
 
-echo -e "${GREEN}==> 重新加载 systemd 并启用服务...${RESET}"
 systemctl daemon-reload
 systemctl enable 3proxy
-systemctl start 3proxy
+systemctl restart 3proxy
 
-echo -e "${GREEN}==> 3proxy 安装完成！${RESET}"
-echo -e "${YELLOW}默认配置文件位置: /usr/local/3proxy/3proxy.cfg${RESET}"
-echo -e "${YELLOW}使用 systemctl [start|stop|status] 3proxy 管理服务${RESET}"
+echo "[7/7] 放行防火墙..."
+
+if command -v ufw >/dev/null 2>&1; then
+    ufw allow ${PORT}/tcp || true
+fi
+
+if command -v firewall-cmd >/dev/null 2>&1; then
+    firewall-cmd --permanent --add-port=${PORT}/tcp || true
+    firewall-cmd --reload || true
+fi
+
+echo
+echo "=================================="
+echo "安装完成"
+echo "=================================="
+echo "IP      : $(curl -4 -s ifconfig.me || echo VPS_IP)"
+echo "端口    : ${PORT}"
+echo "用户名  : ${USERNAME}"
+echo "密码    : ${PASSWORD}"
+echo
+echo "服务状态:"
+systemctl --no-pager status 3proxy | head -n 10
