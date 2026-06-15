@@ -5,7 +5,6 @@
 # ==================================================
 SCRIPT_PATH="/usr/local/bin/tcp.sh"
 SHORTCUT_PATH="/usr/local/bin/t"
-
 # 确保以 root 权限运行
 if [ "$EUID" -ne 0 ]; then
     echo -e "\033[0;31m错误: 必须使用 root 权限运行此脚本！\033[0m"
